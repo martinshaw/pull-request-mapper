@@ -7,7 +7,9 @@ import {
   escapeLabel,
   filterPullRequests,
   findStackRoot,
+  isBranchOnlyRoot,
   isReadmeFileName,
+  makeBranchRoot,
   renderMermaid,
   upsertReadmeSection,
   MARKER_END,
@@ -117,6 +119,25 @@ describe("buildStackTree", () => {
     for (const child of tree.children) {
       assert.equal(child.children.length, 0);
     }
+  });
+
+  it("maps dependents from a branch-only root (no PR)", () => {
+    const branchRoot = makeBranchRoot(
+      "main",
+      "https://github.com/example/stacked-demo/tree/main"
+    );
+    assert.equal(isBranchOnlyRoot(branchRoot), true);
+    const tree = buildStackTree(branchRoot, fixture, DEFAULT_STACK_FILTERS);
+    assert.equal(tree.pr.headRefName, "main");
+    assert.equal(tree.children.length, 1);
+    assert.equal(tree.children[0].pr.number, 1);
+    const mermaid = renderMermaid(tree, {
+      highlightNumber: 0,
+      closedPullRequests: "grayedOut",
+    });
+    assert.match(mermaid, /branch · no PR/);
+    assert.doesNotMatch(mermaid, /style A fill:#e8e8e8/);
+    assert.match(mermaid, /style A stroke-width:5px/);
   });
 });
 

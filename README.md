@@ -74,7 +74,7 @@ This repo provides two ways to get the same diagram:
 | **Primary command**   | `PR Mapper: Upsert Diagram to Current PR Description`                       |
 | **Explore command**   | `PR Mapper: Map PR Stack`                                                   |
 | **Fixture repo**      | `[martinshaw/pr-mapper-test](https://github.com/martinshaw/pr-mapper-test)` |
-| **Version**           | 1.3.0                                                                       |
+| **Version**           | 1.4.0                                                                       |
 
 
 ## Table of contents
@@ -115,8 +115,9 @@ Check out a PR branch, then run **PR Mapper: Upsert Diagram to Current PR Descri
 ### Map PR Stack (interactive)
 
 1. Run **PR Mapper: Map PR Stack**.
-2. Pick the **stack root**, then the **highlight** node (checked-out branch pre-selected when present).
-3. Choose output:
+2. **Search** for the **stack root** (the picker stays empty until you type). Results come from `gh pr list --search` (open and closed PRs) and a GraphQL branch search via `gh api`. Branches that have no PR can be chosen as the inheritance root.
+3. Pick the **highlight** node (checked-out branch pre-selected when present).
+4. Choose output:
    - **Open Markdown tab** — full diagram document
    - **Insert or update to README** — upsert the Mermaid fence only (no preamble) into a root `README` / `README.*` (`.md`, `.markdown`, `.mdown`, `.mkdn`, `.mkd`, `.txt`, or no extension)
 
@@ -140,7 +141,7 @@ Arrows point toward the merge base (`child --> parent`).
 - **`grayedOut`** — include closed/merged; muted Mermaid style + `(closed)` / `(merged)` in the label. Highlight stroke still applies (combined with gray when the current PR is closed).
 - **`normal`** — include closed/merged with the same styling as open PRs.
 
-Stack root and highlight node are chosen each run in the UI.
+Stack root is chosen via type-to-search each run; highlight is chosen from the mapped diagram nodes.
 
 ## Cursor Agent Skill
 
@@ -232,8 +233,9 @@ From the **target** repo (not this skill’s directory):
 # Filters (defaults match the extension: unlimited depth, include drafts, no author/label filter)
 ~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --max-depth 3 --exclude-drafts --author alice --label stack
 
-# Override root / highlight PR numbers
+# Override root / highlight PR numbers (or use a branch with no PR as root)
 ~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --root 1 --highlight 15 --readme README.md
+~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --root-branch main --highlight 15 --stdout
 ```
 
 ### Script behavior
@@ -242,7 +244,7 @@ From the **target** repo (not this skill’s directory):
 | --- | --- |
 | Current branch | `git rev-parse --abbrev-ref HEAD` |
 | Highlight | PR whose `headRefName` matches that branch (or `--highlight`) |
-| Stack root | Walk up `baseRefName` → another PR’s `headRefName` until none (or `--root`) |
+| Stack root | Walk up `baseRefName` → another PR’s `headRefName` until none (or `--root` / `--root-branch`) |
 | Dependents | PRs whose `baseRefName` equals the parent’s `headRefName` |
 | Fetch | One `gh pr list` (`open` or `all` per `--closed`) |
 | Filters | Shared `stackMapper` filters (`--max-depth`, `--exclude-drafts`, `--author`, `--label`) |

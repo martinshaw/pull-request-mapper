@@ -4,8 +4,10 @@
  * No vscode, no gh, no network.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MARKER_END = exports.MARKER_START = exports.DEFAULT_STACK_FILTERS = void 0;
+exports.BRANCH_STATE = exports.MARKER_END = exports.MARKER_START = exports.DEFAULT_STACK_FILTERS = void 0;
 exports.isOpenPullRequest = isOpenPullRequest;
+exports.isBranchOnlyRoot = isBranchOnlyRoot;
+exports.makeBranchRoot = makeBranchRoot;
 exports.filterPullRequests = filterPullRequests;
 exports.findStackRoot = findStackRoot;
 exports.buildStackTree = buildStackTree;
@@ -30,8 +32,24 @@ exports.MARKER_START = "<!-- pr-stack-mermaid:start -->";
 exports.MARKER_END = "<!-- pr-stack-mermaid:end -->";
 const CLOSED_STYLE = "fill:#e8e8e8,stroke:#9a9a9a,color:#6a6a6a";
 const HIGHLIGHT_STYLE = "stroke-width:5px,stroke:#1a1";
+/** Synthetic root for a remote branch that has no pull request. */
+exports.BRANCH_STATE = "BRANCH";
 function isOpenPullRequest(pr) {
     return pr.state.toUpperCase() === "OPEN";
+}
+function isBranchOnlyRoot(pr) {
+    return pr.state.toUpperCase() === exports.BRANCH_STATE;
+}
+/** Build a stack root node for a branch with no associated PR. */
+function makeBranchRoot(branchName, treeUrl) {
+    return {
+        number: 0,
+        title: branchName,
+        headRefName: branchName,
+        baseRefName: "",
+        url: treeUrl,
+        state: exports.BRANCH_STATE,
+    };
 }
 function filterPullRequests(prs, filters = exports.DEFAULT_STACK_FILTERS) {
     const author = filters.authorFilter.trim();
@@ -132,6 +150,9 @@ function escapeLabel(text) {
         .replace(/\r\n|\r|\n/g, "\\n");
 }
 function prLabel(pr) {
+    if (isBranchOnlyRoot(pr)) {
+        return (escapeLabel(pr.headRefName) + "\\n\\n" + escapeLabel("(branch · no PR)"));
+    }
     const stateSuffix = isOpenPullRequest(pr)
         ? ""
         : ` (${pr.state.toLowerCase()})`;
@@ -168,7 +189,7 @@ function renderMermaid(root, options) {
     }
     if (closedMode === "grayedOut") {
         for (const { id, pr } of nodes) {
-            if (!isOpenPullRequest(pr)) {
+            if (!isOpenPullRequest(pr) && !isBranchOnlyRoot(pr)) {
                 lines.push(`  style ${id} ${CLOSED_STYLE}`);
             }
         }
@@ -177,7 +198,9 @@ function renderMermaid(root, options) {
     if (highlight !== undefined) {
         const match = nodes.find((n) => n.pr.number === highlight);
         if (match) {
-            const closedGray = closedMode === "grayedOut" && !isOpenPullRequest(match.pr);
+            const closedGray = closedMode === "grayedOut" &&
+                !isOpenPullRequest(match.pr) &&
+                !isBranchOnlyRoot(match.pr);
             if (closedGray) {
                 const grayOnly = `  style ${match.id} ${CLOSED_STYLE}`;
                 const idx = lines.indexOf(grayOnly);
@@ -197,7 +220,7 @@ function countNodes(node) {
     return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
 }
 function countClosedNodes(node) {
-    const self = isOpenPullRequest(node.pr) ? 0 : 1;
+    const self = isOpenPullRequest(node.pr) || isBranchOnlyRoot(node.pr) ? 0 : 1;
     return (self +
         node.children.reduce((sum, child) => sum + countClosedNodes(child), 0));
 }
@@ -216,24 +239,36 @@ function renderMarkdownDocument(root, repo, selected, highlight, closedMode) {
         : closedMode === "grayedOut"
             ? `\nClosed/merged PRs in diagram: **${closedInTree}** (grayed out).\n`
             : `\nClosed/merged PRs in diagram: **${closedInTree}** (shown as normal).\n`;
+    const selectedHeading = isBranchOnlyRoot(selected)
+        ? `PR stack: branch \`${selected.headRefName}\``
+        : `PR stack: #${selected.number} — ${selected.title}`;
+    const selectedLine = isBranchOnlyRoot(selected)
+        ? `Selected branch: \`${selected.headRefName}\` (no pull request)`
+        : `Selected PR branch: \`${selected.headRefName}\` (merges into \`${selected.baseRefName}\`)`;
+    const highlightLine = isBranchOnlyRoot(highlight)
+        ? `Highlighted (current): branch \`${highlight.headRefName}\``
+        : `Highlighted (current) PR: \`#${highlight.number}\` \`${highlight.headRefName}\``;
+    const openLabel = isBranchOnlyRoot(selected)
+        ? `[Open selected branch](${selected.url})`
+        : `[Open selected PR](${selected.url})`;
     return [
-        `# PR stack: #${selected.number} — ${selected.title}`,
+        `# ${selectedHeading}`,
         "",
         `Repository: \`${repo}\``,
         "",
-        `Selected PR branch: \`${selected.headRefName}\` (merges into \`${selected.baseRefName}\`)`,
+        selectedLine,
         "",
-        `Highlighted (current) PR: \`#${highlight.number}\` \`${highlight.headRefName}\``,
+        highlightLine,
         "",
         `${dependentLabel}: **${dependentCount}**`,
         closedNote,
-        "Arrows point toward the merge base (child → parent). Merge from the leaves toward the selected PR to land all changes on its branch.",
+        "Arrows point toward the merge base (child → parent). Merge from the leaves toward the selected root to land all changes on its branch.",
         "",
         "```mermaid",
         mermaid,
         "```",
         "",
-        `[Open selected PR](${selected.url})`,
+        openLabel,
         "",
     ].join("\n");
 }
