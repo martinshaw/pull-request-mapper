@@ -1,0 +1,36 @@
+{
+  "name": "pull-request-mapper",
+  "displayName": "Pull Request Mapper",
+  "description": "Map stacked PR inheritance into a Mermaid flowchart using the GitHub CLI.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:pull-request-mapper.mapPrStack"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pull-request-mapper.mapPrStack",
+        "title": "PR Mapper: Map PR Stack"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}
