@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Wrapper so agents can invoke: scripts/map-pr-stack --readme README.md
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$DIR/map-pr-stack.mjs" "$@"
