@@ -153,13 +153,7 @@ async function mapPrStack(): Promise<void> {
     return;
   }
 
-  const section = renderReadmeSection(
-    repo,
-    tree,
-    selected,
-    highlight.pr,
-    closedMode
-  );
+  const section = renderReadmeSection(tree, highlight.pr, closedMode);
 
   try {
     const existing = await readFileText(readmeUri);
@@ -240,13 +234,7 @@ async function upsertCurrentPrDescription(): Promise<void> {
       pullRequests.find((p) => p.number === current.number) ?? current;
     const root = findStackRoot(highlight, pullRequests);
     const tree = buildStackTree(root, pullRequests, filters);
-    const section = renderReadmeSection(
-      repo,
-      tree,
-      root,
-      highlight,
-      closedMode
-    );
+    const section = renderReadmeSection(tree, highlight, closedMode);
     const nextBody = upsertMarkedSection(current.body, section);
 
     await vscode.window.withProgress(

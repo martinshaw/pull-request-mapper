@@ -237,27 +237,16 @@ function renderMarkdownDocument(root, repo, selected, highlight, closedMode) {
         "",
     ].join("\n");
 }
-/** Compact marked section used by the skill / README upsert. */
-function renderReadmeSection(repo, tree, root, highlight, closedMode) {
+/**
+ * Marked Mermaid-only block for README / PR description upsert.
+ * No preamble — just the fence (plus HTML comment markers for replace).
+ */
+function renderReadmeSection(tree, highlight, closedMode) {
     const mermaid = renderMermaid(tree, {
         highlightNumber: highlight.number,
         closedPullRequests: closedMode,
     });
-    const dependentCount = countNodes(tree) - 1;
-    return [
-        exports.MARKER_START,
-        "## PR stack",
-        "",
-        `Repository: \`${repo}\` · Root: [#${root.number}](${root.url}) \`${root.headRefName}\` · Highlighted: [#${highlight.number}](${highlight.url}) \`${highlight.headRefName}\` · Dependents: **${dependentCount}**`,
-        "",
-        "Arrows point toward the merge base (`child --> parent`).",
-        "",
-        "```mermaid",
-        mermaid,
-        "```",
-        exports.MARKER_END,
-        "",
-    ].join("\n");
+    return [exports.MARKER_START, "```mermaid", mermaid, "```", exports.MARKER_END, ""].join("\n");
 }
 /**
  * Insert or replace the marked PR-stack block at the top of a markdown body

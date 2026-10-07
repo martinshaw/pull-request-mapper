@@ -187,9 +187,10 @@ describe("escapeLabel / renderMermaid", () => {
 
 describe("upsertReadmeSection", () => {
   it("inserts at top when markers are absent", () => {
-    const section = `${MARKER_START}\n## PR stack\n${MARKER_END}\n`;
+    const section = `${MARKER_START}\n\`\`\`mermaid\nflowchart TB\n  A["x"]\n\`\`\`\n${MARKER_END}\n`;
     const next = upsertReadmeSection("# Title\n\nBody\n", section);
     assert.ok(next.startsWith(MARKER_START));
+    assert.ok(next.includes("```mermaid"));
     assert.ok(next.includes("# Title"));
   });
 
