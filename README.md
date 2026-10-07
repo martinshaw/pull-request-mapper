@@ -71,9 +71,10 @@ This repo provides two ways to get the same diagram:
 
 |                       |                                                                             |
 | --------------------- | --------------------------------------------------------------------------- |
-| **Extension command** | `PR Mapper: Map PR Stack` (`pull-request-mapper.mapPrStack`)                |
+| **Primary command**   | `PR Mapper: Upsert Diagram to Current PR Description`                       |
+| **Explore command**   | `PR Mapper: Map PR Stack`                                                   |
 | **Fixture repo**      | `[martinshaw/pr-mapper-test](https://github.com/martinshaw/pr-mapper-test)` |
-| **Version**           | 1.1.2                                                                       |
+| **Version**           | 1.2.0                                                                       |
 
 
 ## Table of contents
@@ -102,29 +103,44 @@ Skill / CLI additionally needs **Node.js 18+** (`node` on `PATH`).
 
 ## Extension usage
 
-1. Open the repository folder in the IDE.
-2. Run **PR Mapper: Map PR Stack** from the Command Palette.
-3. Pick the **stack root** (map target).
-4. Pick which PR to **highlight as current** (Mermaid `style <letter> …`). The checked-out branch’s PR is pre-selected when it appears in the diagram; otherwise the stack root is.
-5. A Markdown tab opens with the flowchart (subject to [Settings](#settings)).
+### Upsert into the current PR description (primary)
 
-Arrows point toward the merge base (`child --> parent`). Merge from the leaves toward the selected PR to land the full stack.
+Check out a PR branch, then run **PR Mapper: Upsert Diagram to Current PR Description**.
+
+- Resolves the PR for the current branch with `gh pr view`
+- Walks up to the stack root, maps dependents (per [Settings](#settings))
+- Highlights the **current branch’s PR** (no highlight prompt)
+- Upserts a marked Mermaid block at the top of that PR’s description via `gh pr edit --body-file` (inserts, or replaces if the markers already exist)
+
+### Map PR Stack (interactive)
+
+1. Run **PR Mapper: Map PR Stack**.
+2. Pick the **stack root**, then the **highlight** node (checked-out branch pre-selected when present).
+3. Choose output:
+   - **Open Markdown tab** — full diagram document
+   - **Insert or update to README** — upsert into a root `README` / `README.*` (`.md`, `.markdown`, `.mdown`, `.mkdn`, `.mkd`, `.txt`, or no extension)
+
+Arrows point toward the merge base (`child --> parent`).
 
 ## Settings
 
-Extension setting (**Settings → Extensions → Pull Request Mapper**, or `settings.json`). The skill uses the same modes via `--closed` (see [Manual CLI](#manual-cli-optional)).
+**Settings → Extensions → Pull Request Mapper**, or `settings.json`. Defaults match historical chart output (no extra filtering). The skill exposes the same knobs via CLI flags (see [Manual CLI](#manual-cli-optional)).
 
-
-| Setting                                | Default   | Values                             |
-| -------------------------------------- | --------- | ---------------------------------- |
+| Setting | Default | Values / notes |
+| --- | --- | --- |
 | `pullRequestMapper.closedPullRequests` | `exclude` | `exclude` · `grayedOut` · `normal` |
+| `pullRequestMapper.maxDepth` | `0` | `0` = unlimited; otherwise max dependent levels below the root (root is level 0) |
+| `pullRequestMapper.excludeDrafts` | `false` | When `true`, omit draft PRs |
+| `pullRequestMapper.authorFilter` | `""` | If non-empty, only that GitHub login |
+| `pullRequestMapper.labelFilter` | `""` | If non-empty, only PRs with that label name |
 
+**Closed-PR modes**
 
-- `**exclude**` — open PRs only (default).
-- `**grayedOut**` — include closed/merged; muted Mermaid style + `(closed)` / `(merged)` in the label. Highlight stroke still applies (combined with gray when the current PR is closed).
-- `**normal**` — include closed/merged with the same styling as open PRs.
+- **`exclude`** — open PRs only (default).
+- **`grayedOut`** — include closed/merged; muted Mermaid style + `(closed)` / `(merged)` in the label. Highlight stroke still applies (combined with gray when the current PR is closed).
+- **`normal`** — include closed/merged with the same styling as open PRs.
 
-No other extension settings. Stack root and highlight node are chosen each run in the UI.
+Stack root and highlight node are chosen each run in the UI.
 
 ## Cursor Agent Skill
 
@@ -137,12 +153,22 @@ The extension does not run inside agent sessions in other repos. Use the bundled
 ├── SKILL.md                 # Agent instructions
 └── scripts/
     ├── map-pr-stack         # bash wrapper
-    └── map-pr-stack.mjs     # generator (gh + git + Node)
+    ├── map-pr-stack.mjs     # CLI (gh + git); calls shared lib
+    └── lib/stackMapper.js   # synced from src/stackMapper.ts on compile
 ```
+
+Shared diagram logic lives in `src/stackMapper.ts` (extension + skill). `npm run compile` copies the built JS into the skill lib.
 
 ### Use in another project
 
 **1. Install the skill** (pick one):
+
+```bash
+# One-liner (Cursor skills CLI) — installs into ~/.cursor/skills
+npx skills add martinshaw/pull-request-mapper
+```
+
+Or copy from a clone:
 
 ```bash
 git clone https://github.com/martinshaw/pull-request-mapper.git
@@ -200,43 +226,52 @@ From the **target** repo (not this skill’s directory):
 # Closed/merged styling (same meanings as the extension setting)
 ~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --closed grayedOut --readme README.md
 
+# Upsert into the current branch’s PR description (highlight = that PR; gh pr edit)
+~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --pr-body --closed grayedOut
+
+# Filters (defaults match the extension: unlimited depth, include drafts, no author/label filter)
+~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --max-depth 3 --exclude-drafts --author alice --label stack
+
 # Override root / highlight PR numbers
 ~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack --root 1 --highlight 15 --readme README.md
 ```
 
 ### Script behavior
 
+| Step | Behavior |
+| --- | --- |
+| Current branch | `git rev-parse --abbrev-ref HEAD` |
+| Highlight | PR whose `headRefName` matches that branch (or `--highlight`) |
+| Stack root | Walk up `baseRefName` → another PR’s `headRefName` until none (or `--root`) |
+| Dependents | PRs whose `baseRefName` equals the parent’s `headRefName` |
+| Fetch | One `gh pr list` (`open` or `all` per `--closed`) |
+| Filters | Shared `stackMapper` filters (`--max-depth`, `--exclude-drafts`, `--author`, `--label`) |
+| Mermaid | Dense GFM fence; literal `\n` in labels; gray styles when `--closed grayedOut` |
+| README | Upsert between the HTML comment markers; insert at file top if missing |
 
-| Step           | Behavior                                                                       |
-| -------------- | ------------------------------------------------------------------------------ |
-| Current branch | `git rev-parse --abbrev-ref HEAD`                                              |
-| Highlight      | PR whose `headRefName` matches that branch (or `--highlight`)                  |
-| Stack root     | Walk up `baseRefName` → another PR’s `headRefName` until none (or `--root`)    |
-| Dependents     | PRs whose `baseRefName` equals the parent’s `headRefName`                      |
-| Fetch          | One `gh pr list` (`open` or `all` per `--closed`)                              |
-| Mermaid        | Dense GFM fence; literal `\n` in labels; gray styles when `--closed grayedOut` |
-| README         | Upsert between the HTML comment markers; insert at file top if missing         |
-
-
-The skill script and extension TypeScript are maintained in parallel. Prefer fixing agent behavior in the script; keep the extension UI aligned when rules change.
+Change mapping rules in `src/stackMapper.ts`, then `npm run compile` (syncs the skill lib).
 
 ## How it works
 
-At most three kinds of `gh` usage per successful run:
+`gh` only (no direct REST client). Typical calls:
 
-1. `gh --version` / `gh auth status` — install + auth checks
-2. `gh repo view` — resolve `owner/name`
-3. `gh pr list --repo … --state <open|all> --limit 1000 --json …` — **one** list
+1. `gh --version` / `gh auth status` — install + auth checks  
+2. `gh repo view` — resolve `owner/name`  
+3. `gh pr list --repo … --state <open|all> --limit 1000 --json …` — **one** list  
+4. **Upsert to current PR:** `gh pr view` (current branch) + `gh pr edit --body-file` (write description)
 
-The stack is built in memory by matching `baseRefName` → `headRefName`. No per-PR fetches.
+The stack is built in memory by matching `baseRefName` → `headRefName`.
 
 ## Develop
 
 ```bash
 npm install
-npm run compile
+npm run compile   # tsc + sync skill lib
+npm test          # unit tests (no network / no gh)
 ```
 
 Then **Run Extension** from the Debug view (F5) to open an Extension Development Host.
 
-Skill changes live under `[.cursor/skills/pr-stack-mermaid/](.cursor/skills/pr-stack-mermaid/)`; re-copy to `~/.cursor/skills/` (or the other project) after updates.
+Skill package: [`.cursor/skills/pr-stack-mermaid/`](.cursor/skills/pr-stack-mermaid/). Re-install or re-copy after updates if you use a personal/project copy.
+
+License: [GPL-3.0](LICENSE).

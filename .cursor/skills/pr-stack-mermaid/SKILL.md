@@ -9,7 +9,7 @@ description: >-
 
 # PR stack Mermaid
 
-Generate a stacked-PR Mermaid diagram for the **current workspace git repo** (same rules as the [Pull Request Mapper](https://github.com/martinshaw/pull-request-mapper) extension). Prefer running the bundled script — do not reimplement the tree logic.
+Generate a stacked-PR Mermaid diagram for the **current workspace git repo**. Prefer the bundled script — do not reimplement the tree logic. Shared rules live in `scripts/lib/stackMapper.js` (built from `src/stackMapper.ts` in the pull-request-mapper repo).
 
 ## Requirements
 
@@ -17,91 +17,53 @@ Generate a stacked-PR Mermaid diagram for the **current workspace git repo** (sa
 - `git` available
 - Workspace is a clone of a GitHub repository
 - Node.js 18+ (`node` on `PATH`)
+- `scripts/lib/stackMapper.js` present (from `npm run compile` in the upstream repo before install)
 
 ## When to run
 
-Typical user request (verbatim intent):
-
 > Using the PR stack Mermaid skill, generate the diagram for the current branch’s stack and put it at the top of the README.
-
-Also use this skill for similar asks (stack diagram, Mermaid PR map, highlight current branch, prepend/update README).
 
 ## Steps
 
-1. Confirm `cwd` is the **target project** (the repo whose PRs should be mapped), not this skill’s directory.
-2. Resolve this skill’s script path. The script lives next to this file:
-
-   `scripts/map-pr-stack`  
-   (or `scripts/map-pr-stack.mjs`)
-
-   If you opened the skill from a checkout of `pull-request-mapper`, that is:
-
-   `.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack`
-
-   If the skill was copied to the personal skills folder:
-
-   `~/.cursor/skills/pr-stack-mermaid/scripts/map-pr-stack`
-
-3. Make the wrapper executable if needed: `chmod +x <skill-root>/scripts/map-pr-stack`
-4. Run from the **target repo** cwd:
+1. Confirm `cwd` is the **target project**.
+2. Resolve `<skill-root>/scripts/map-pr-stack` (workspace `.cursor/skills/…` or `~/.cursor/skills/…`).
+3. `chmod +x` the wrapper if needed.
+4. Run from the target repo. Prefer PR description upsert when the user wants the diagram on the current PR:
 
    ```bash
+   # Upsert into current branch PR description (highlight = that PR)
+   <skill-root>/scripts/map-pr-stack --pr-body
+
+   # Or upsert into README
    <skill-root>/scripts/map-pr-stack --readme README.md
+
+   # optional: --closed grayedOut|normal|exclude
+   # optional: --max-depth N --exclude-drafts --author LOGIN --label NAME
+   # optional: --stdout --root N --highlight N
    ```
 
-   Common variants:
+5. On failure, fix env / ask the user — do not invent a diagram.
+6. After `--pr-body` / `--readme`, confirm what was updated (PR number or path) + root + highlighted PR.
 
-   ```bash
-   # Include closed/merged PRs, grayed out (matches extension grayedOut setting)
-   <skill-root>/scripts/map-pr-stack --closed grayedOut --readme README.md
+## Behavior
 
-   # Print only (no file write)
-   <skill-root>/scripts/map-pr-stack --stdout
-
-   # Force root / highlight PR numbers
-   <skill-root>/scripts/map-pr-stack --root 1 --highlight 15 --readme README.md
-   ```
-
-5. If the script fails (no PR for current branch, `gh` auth, etc.), fix the environment or ask the user — do not invent a diagram.
-6. After a successful `--readme` run, briefly confirm the path updated and summarize root + highlighted PR.
-
-## Script behavior (do not diverge)
-
-| Behavior | Detail |
+| Topic | Detail |
 | --- | --- |
-| Current branch | `git rev-parse --abbrev-ref HEAD` |
-| Highlight | PR whose `headRefName` equals the current branch (or `--highlight`) |
-| Stack root | Walk up `baseRefName` → other PR `headRefName` until none (or `--root`) |
-| Tree | Dependents = PRs whose `baseRefName` equals parent `headRefName` |
-| Fetch | One `gh pr list` (`open` if `--closed exclude`, else `all`) |
-| Mermaid | Dense fence; labels use literal `\n`; entity-escape `#` `"` `<>`; `click` links; gray styles when `--closed grayedOut` |
-| README | Upserts block between `<!-- pr-stack-mermaid:start -->` and `<!-- pr-stack-mermaid:end -->`; inserts at **top of file** if markers are missing |
+| Highlight | Current branch head PR (or `--highlight`) |
+| Root | Walk up bases until none (or `--root`) |
+| Tree / Mermaid / README markers | `scripts/lib/stackMapper.js` |
+| Defaults | Unlimited depth, include drafts, no author/label filter (`exclude` closed mode) |
 
-## Closed-PR modes
-
-| `--closed` | Meaning |
-| --- | --- |
-| `exclude` (default) | Open PRs only |
-| `grayedOut` | Include closed/merged with muted Mermaid styling |
-| `normal` | Include closed/merged with normal styling |
-
-## Install into another environment
-
-Copy this whole directory so agents in other projects can load it:
+## Install
 
 ```bash
-# Personal (all projects)
-mkdir -p ~/.cursor/skills
-cp -R .cursor/skills/pr-stack-mermaid ~/.cursor/skills/
-
-# Or into a specific app repo
-cp -R .cursor/skills/pr-stack-mermaid /path/to/other-repo/.cursor/skills/
+npx skills add martinshaw/pull-request-mapper
 ```
 
-Do **not** install under `~/.cursor/skills-cursor/` (Cursor built-ins only).
+Or copy `.cursor/skills/pr-stack-mermaid/` into `~/.cursor/skills/` or another repo’s `.cursor/skills/`. Never install under `~/.cursor/skills-cursor/`.
 
 ## Anti-patterns
 
-- Do not call the VS Code extension command from the agent — use this script.
+- Do not call the VS Code extension from the agent — use this script.
 - Do not hand-write Mermaid that contradicts `gh pr list` data.
-- Do not put real newlines inside node label strings; the script emits `\n` escapes for GFM.
+- Do not put real newlines inside node label strings.

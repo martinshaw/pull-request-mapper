@@ -1,20 +1,16 @@
 import { execFile } from "child_process";
+import { promises as fs } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { promisify } from "util";
+import type { PullRequest } from "./stackMapper";
+
+export type { PullRequest } from "./stackMapper";
+export { isOpenPullRequest } from "./stackMapper";
 
 const execFileAsync = promisify(execFile);
 
-export type PullRequest = {
-  number: number;
-  title: string;
-  headRefName: string;
-  baseRefName: string;
-  url: string;
-  state: string;
-};
-
-export function isOpenPullRequest(pr: { state: string }): boolean {
-  return pr.state.toUpperCase() === "OPEN";
-}
+export type PullRequestWithBody = PullRequest & { body: string };
 
 export class GhError extends Error {
   constructor(message: string) {
@@ -117,6 +113,36 @@ export async function getRepoNameWithOwner(cwd: string): Promise<string> {
 
 export type PrListState = "open" | "all";
 
+type GhPrJson = {
+  number: number;
+  title: string;
+  headRefName: string;
+  baseRefName: string;
+  url: string;
+  state: string;
+  isDraft?: boolean;
+  author?: { login?: string } | null;
+  labels?: Array<{ name?: string } | string> | null;
+};
+
+function normalizePr(raw: GhPrJson): PullRequest {
+  const labels = (raw.labels ?? [])
+    .map((l) => (typeof l === "string" ? l : l.name))
+    .filter((n): n is string => Boolean(n));
+
+  return {
+    number: raw.number,
+    title: raw.title,
+    headRefName: raw.headRefName,
+    baseRefName: raw.baseRefName,
+    url: raw.url,
+    state: raw.state,
+    isDraft: Boolean(raw.isDraft),
+    authorLogin: raw.author?.login ?? "",
+    labels,
+  };
+}
+
 /**
  * Fetch PRs for the workspace repo in a single `gh pr list` call.
  * All stack mapping is done locally from this list.
@@ -137,7 +163,7 @@ export async function listPullRequests(
       "--limit",
       "1000",
       "--json",
-      "number,title,headRefName,baseRefName,url,state",
+      "number,title,headRefName,baseRefName,url,state,isDraft,author,labels",
     ],
     cwd
   );
@@ -148,8 +174,79 @@ export async function listPullRequests(
   }
 
   try {
-    return JSON.parse(trimmed) as PullRequest[];
+    const parsed = JSON.parse(trimmed) as GhPrJson[];
+    return parsed.map(normalizePr);
   } catch {
     throw new GhError("Failed to parse `gh pr list` JSON output.");
+  }
+}
+
+type GhPrViewJson = GhPrJson & { body?: string | null };
+
+/**
+ * PR for the current branch (`gh pr view`), including description body.
+ */
+export async function getCurrentBranchPullRequest(
+  cwd: string,
+  repo: string
+): Promise<PullRequestWithBody> {
+  try {
+    const { stdout } = await runGh(
+      [
+        "pr",
+        "view",
+        "--repo",
+        repo,
+        "--json",
+        "number,title,body,url,headRefName,baseRefName,state,isDraft,author,labels",
+      ],
+      cwd
+    );
+    const raw = JSON.parse(stdout) as GhPrViewJson;
+    return {
+      ...normalizePr(raw),
+      body: raw.body ?? "",
+    };
+  } catch (error: unknown) {
+    if (error instanceof GhError) {
+      throw new GhError(
+        `${error.message}\n\nCheck out a branch that has an open (or existing) pull request, then try again.`
+      );
+    }
+    throw error;
+  }
+}
+
+/** Replace a pull request description via `gh pr edit --body-file` (gh only). */
+export async function updatePullRequestBody(
+  cwd: string,
+  repo: string,
+  prNumber: number,
+  body: string
+): Promise<void> {
+  const tmpPath = join(
+    tmpdir(),
+    `pr-mapper-body-${repo.replace(/[^\w.-]+/g, "_")}-${prNumber}.md`
+  );
+  try {
+    await fs.writeFile(tmpPath, body, "utf8");
+    await runGh(
+      [
+        "pr",
+        "edit",
+        String(prNumber),
+        "--repo",
+        repo,
+        "--body-file",
+        tmpPath,
+      ],
+      cwd
+    );
+  } finally {
+    try {
+      await fs.unlink(tmpPath);
+    } catch {
+      // ignore cleanup errors
+    }
   }
 }
