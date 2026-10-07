@@ -2,7 +2,7 @@
   "name": "pull-request-mapper",
   "displayName": "Pull Request Mapper",
   "description": "Map stacked PR inheritance into a Mermaid flowchart using the GitHub CLI.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
