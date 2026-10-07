@@ -1,38 +1,42 @@
 #!/usr/bin/env node
 /**
- * Generate a stacked-PR Mermaid diagram (same rules as the Pull Request Mapper extension).
+ * CLI wrapper around the shared stackMapper (synced from src/stackMapper.ts).
  *
- * Usage (run with cwd = target git repo):
- *   node map-pr-stack.mjs [--closed exclude|grayedOut|normal] [--readme PATH] [--stdout]
- *                         [--root <pr-number>] [--highlight <pr-number>]
- *
- * Default: find PR for current branch, walk up to stack root, highlight current branch,
- * print a markdown section to stdout. With --readme, upsert that section at the top of the file.
+ * Usage (cwd = target git repo):
+ *   node map-pr-stack.mjs [options]
  */
 
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const MARKER_START = "<!-- pr-stack-mermaid:start -->";
-const MARKER_END = "<!-- pr-stack-mermaid:end -->";
-const CLOSED_STYLE = "fill:#e8e8e8,stroke:#9a9a9a,color:#6a6a6a";
-const HIGHLIGHT_STYLE = "stroke-width:5px,stroke:#1a1";
+const require = createRequire(import.meta.url);
+const {
+  DEFAULT_STACK_FILTERS,
+  buildStackTree,
+  filterPullRequests,
+  findStackRoot,
+  renderReadmeSection,
+  upsertMarkedSection,
+} = require("./lib/stackMapper.js");
 
 function usage(code = 1) {
   console.error(`Usage: map-pr-stack.mjs [options]
 
 Options:
-  --closed <mode>     exclude | grayedOut | normal (default: exclude)
-  --readme <path>     Upsert diagram section at top of this markdown file
-  --stdout            Always print the markdown section to stdout
-  --root <number>     Force stack root PR number (default: walk up from current branch)
-  --highlight <number> Force highlight PR number (default: current branch PR)
-  -h, --help          Show help
+  --closed <mode>        exclude | grayedOut | normal (default: exclude)
+  --max-depth <n>        0 = unlimited (default); else max levels below root
+  --exclude-drafts       Omit draft PRs
+  --author <login>       Only PRs by this author login
+  --label <name>         Only PRs with this label
+  --readme <path>        Upsert diagram section into this README file
+  --pr-body              Upsert into the current branch PR description (gh pr edit)
+  --stdout               Always print the markdown section to stdout
+  --root <number>        Force stack root PR number
+  --highlight <number>   Force highlight PR number (default with --pr-body: current PR)
+  -h, --help             Show help
 `);
   process.exit(code);
 }
@@ -41,23 +45,36 @@ function parseArgs(argv) {
   const opts = {
     closed: "exclude",
     readme: null,
+    prBody: false,
     stdout: false,
     root: null,
     highlight: null,
+    maxDepth: DEFAULT_STACK_FILTERS.maxDepth,
+    excludeDrafts: DEFAULT_STACK_FILTERS.excludeDrafts,
+    authorFilter: DEFAULT_STACK_FILTERS.authorFilter,
+    labelFilter: DEFAULT_STACK_FILTERS.labelFilter,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") usage(0);
     else if (a === "--stdout") opts.stdout = true;
+    else if (a === "--pr-body") opts.prBody = true;
+    else if (a === "--exclude-drafts") opts.excludeDrafts = true;
     else if (a === "--closed") {
       opts.closed = argv[++i];
       if (!["exclude", "grayedOut", "normal"].includes(opts.closed)) {
         die(`Invalid --closed value: ${opts.closed}`);
       }
-    } else if (a === "--readme") opts.readme = argv[++i];
+    } else if (a === "--max-depth") opts.maxDepth = Number(argv[++i]);
+    else if (a === "--author") opts.authorFilter = argv[++i] ?? "";
+    else if (a === "--label") opts.labelFilter = argv[++i] ?? "";
+    else if (a === "--readme") opts.readme = argv[++i];
     else if (a === "--root") opts.root = Number(argv[++i]);
     else if (a === "--highlight") opts.highlight = Number(argv[++i]);
     else die(`Unknown argument: ${a}`);
+  }
+  if (!Number.isFinite(opts.maxDepth) || opts.maxDepth < 0) {
+    die("--max-depth must be a non-negative number");
   }
   return opts;
 }
@@ -67,25 +84,22 @@ function die(msg) {
   process.exit(1);
 }
 
-function run(cmd, args, opts = {}) {
+function run(cmd, args) {
   try {
     return execFileSync(cmd, args, {
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
       env: process.env,
-      ...opts,
     }).trim();
   } catch (err) {
     if (err && err.code === "ENOENT") {
       die(`\`${cmd}\` is not installed or not on PATH.`);
     }
-    const detail = (err.stderr || err.stdout || err.message || "").toString().trim();
+    const detail = (err.stderr || err.stdout || err.message || "")
+      .toString()
+      .trim();
     die(detail || `${cmd} ${args.join(" ")} failed`);
   }
-}
-
-function isOpen(pr) {
-  return String(pr.state).toUpperCase() === "OPEN";
 }
 
 function ensureGh() {
@@ -134,196 +148,144 @@ function listPrs(repo, closedMode) {
     "--limit",
     "1000",
     "--json",
-    "number,title,headRefName,baseRefName,url,state",
+    "number,title,headRefName,baseRefName,url,state,isDraft,author,labels",
   ]);
   if (!raw) return [];
+  let parsed;
   try {
-    return JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
     die("Failed to parse `gh pr list` JSON.");
   }
-}
-
-function findStackRoot(start, allPrs) {
-  const byHead = new Map(allPrs.map((pr) => [pr.headRefName, pr]));
-  let root = start;
-  const seen = new Set([root.number]);
-  for (;;) {
-    const parent = byHead.get(root.baseRefName);
-    if (!parent) break;
-    if (seen.has(parent.number)) break;
-    seen.add(parent.number);
-    root = parent;
-  }
-  return root;
-}
-
-function buildStackTree(root, allPrs) {
-  const byBase = new Map();
-  for (const pr of allPrs) {
-    const list = byBase.get(pr.baseRefName) ?? [];
-    list.push(pr);
-    byBase.set(pr.baseRefName, list);
-  }
-  const visited = new Set();
-
-  function walk(pr) {
-    visited.add(pr.number);
-    const dependents = byBase.get(pr.headRefName) ?? [];
-    const children = [];
-    for (const child of dependents) {
-      if (visited.has(child.number)) continue;
-      children.push(walk(child));
-    }
-    children.sort((a, b) => a.pr.number - b.pr.number);
-    return { pr, children };
-  }
-
-  return walk(root);
-}
-
-function nodeId(index) {
-  let n = index;
-  let id = "";
-  do {
-    id = String.fromCharCode(65 + (n % 26)) + id;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-  return id;
-}
-
-function escapeLabel(text) {
-  return String(text)
-    .replace(/\\/g, "\\\\")
-    .replace(/#/g, "#35;")
-    .replace(/"/g, "#quot;")
-    .replace(/</g, "#lt;")
-    .replace(/>/g, "#gt;")
-    .replace(/\r\n|\r|\n/g, "\\n");
-}
-
-function prLabel(pr) {
-  const stateSuffix = isOpen(pr) ? "" : ` (${String(pr.state).toLowerCase()})`;
-  return (
-    escapeLabel(`${pr.title}${stateSuffix}`) +
-    "\\n\\n" +
-    escapeLabel(pr.headRefName)
-  );
-}
-
-function renderMermaid(root, highlightNumber, closedMode) {
-  const nodes = [];
-  const edges = [];
-  let counter = 0;
-
-  function visit(node, parentId) {
-    const id = nodeId(counter++);
-    nodes.push({ id, pr: node.pr });
-    if (parentId) edges.push({ from: id, to: parentId });
-    for (const child of node.children) visit(child, id);
-  }
-
-  visit(root, null);
-
-  const lines = ["flowchart TB"];
-  for (const { id, pr } of nodes) {
-    lines.push(`  ${id}["${prLabel(pr)}"]`);
-  }
-  for (const { id, pr } of nodes) {
-    lines.push(`  click ${id} "${pr.url.replace(/"/g, "%22")}"`);
-  }
-  for (const { from, to } of edges) {
-    lines.push(`  ${from} --> ${to}`);
-  }
-
-  if (closedMode === "grayedOut") {
-    for (const { id, pr } of nodes) {
-      if (!isOpen(pr)) lines.push(`  style ${id} ${CLOSED_STYLE}`);
-    }
-  }
-
-  if (highlightNumber !== undefined) {
-    const match = nodes.find((n) => n.pr.number === highlightNumber);
-    if (match) {
-      const closedGray = closedMode === "grayedOut" && !isOpen(match.pr);
-      if (closedGray) {
-        const grayOnly = `  style ${match.id} ${CLOSED_STYLE}`;
-        const idx = lines.indexOf(grayOnly);
-        if (idx !== -1) lines.splice(idx, 1);
-        lines.push(`  style ${match.id} ${CLOSED_STYLE},${HIGHLIGHT_STYLE}`);
-      } else {
-        lines.push(`  style ${match.id} ${HIGHLIGHT_STYLE}`);
-      }
-    }
-  }
-
-  return lines.join("\n");
-}
-
-function countNodes(node) {
-  return 1 + node.children.reduce((s, c) => s + countNodes(c), 0);
-}
-
-function renderSection(repo, tree, root, highlight, closedMode) {
-  const mermaid = renderMermaid(tree, highlight.number, closedMode);
-  const dependentCount = countNodes(tree) - 1;
-  const lines = [
-    MARKER_START,
-    `## PR stack`,
-    "",
-    `Repository: \`${repo}\` · Root: [#${root.number}](${root.url}) \`${root.headRefName}\` · Highlighted: [#${highlight.number}](${highlight.url}) \`${highlight.headRefName}\` · Dependents: **${dependentCount}**`,
-    "",
-    "Arrows point toward the merge base (`child --> parent`).",
-    "",
-    "```mermaid",
-    mermaid,
-    "```",
-    MARKER_END,
-    "",
-  ];
-  return lines.join("\n");
+  return parsed.map((rawPr) => ({
+    number: rawPr.number,
+    title: rawPr.title,
+    headRefName: rawPr.headRefName,
+    baseRefName: rawPr.baseRefName,
+    url: rawPr.url,
+    state: rawPr.state,
+    isDraft: Boolean(rawPr.isDraft),
+    authorLogin: rawPr.author?.login ?? "",
+    labels: (rawPr.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : l.name))
+      .filter(Boolean),
+  }));
 }
 
 function upsertReadme(readmePath, section) {
   const path = resolve(process.cwd(), readmePath);
-  let body = existsSync(path) ? readFileSync(path, "utf8") : "";
-
-  const start = body.indexOf(MARKER_START);
-  const end = body.indexOf(MARKER_END);
-  if (start !== -1 && end !== -1 && end > start) {
-    const afterEnd = end + MARKER_END.length;
-    const before = body.slice(0, start).replace(/\s+$/, "");
-    const after = body.slice(afterEnd).replace(/^\s*\n?/, "\n");
-    body = (before ? before + "\n\n" : "") + section + (after.startsWith("\n") ? after : "\n" + after);
-  } else {
-    body = section + (body ? body.replace(/^\uFEFF?/, "") : "");
-  }
-
-  writeFileSync(path, body.endsWith("\n") ? body : body + "\n", "utf8");
+  const body = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const next = upsertMarkedSection(body, section);
+  writeFileSync(path, next.endsWith("\n") ? next : next + "\n", "utf8");
   return path;
 }
 
-function main() {
-  const opts = parseArgs(process.argv.slice(2));
-  ensureGh();
+function getCurrentPr(repo) {
+  const raw = run("gh", [
+    "pr",
+    "view",
+    "--repo",
+    repo,
+    "--json",
+    "number,title,body,url,headRefName,baseRefName,state,isDraft,author,labels",
+  ]);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    die("Failed to parse `gh pr view` JSON.");
+  }
+  return {
+    number: parsed.number,
+    title: parsed.title,
+    headRefName: parsed.headRefName,
+    baseRefName: parsed.baseRefName,
+    url: parsed.url,
+    state: parsed.state,
+    isDraft: Boolean(parsed.isDraft),
+    authorLogin: parsed.author?.login ?? "",
+    labels: (parsed.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : l.name))
+      .filter(Boolean),
+    body: parsed.body ?? "",
+  };
+}
 
-  const branch = getBranch();
-  const repo = getRepo();
-  const prs = listPrs(repo, opts.closed);
-  if (prs.length === 0) {
+function updatePrBody(repo, prNumber, body) {
+  const tmp = join(
+    dirname(fileURLToPath(import.meta.url)),
+    `.pr-body-${prNumber}.tmp.md`
+  );
+  try {
+    writeFileSync(tmp, body, "utf8");
+    run("gh", [
+      "pr",
+      "edit",
+      String(prNumber),
+      "--repo",
+      repo,
+      "--body-file",
+      tmp,
+    ]);
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function main() {
+  const libPath = join(dirname(fileURLToPath(import.meta.url)), "lib", "stackMapper.js");
+  if (!existsSync(libPath)) {
     die(
-      opts.closed === "exclude"
-        ? `No open pull requests in ${repo}.`
-        : `No pull requests in ${repo}.`
+      `Missing ${libPath}. From the pull-request-mapper repo run: npm run compile`
     );
   }
 
-  let highlight = opts.highlight
-    ? prs.find((p) => p.number === opts.highlight)
-    : prs.find((p) => p.headRefName === branch);
+  const opts = parseArgs(process.argv.slice(2));
+  ensureGh();
+
+  const filters = {
+    maxDepth: opts.maxDepth,
+    excludeDrafts: opts.excludeDrafts,
+    authorFilter: opts.authorFilter,
+    labelFilter: opts.labelFilter,
+  };
+
+  const branch = getBranch();
+  const repo = getRepo();
+  let prs = filterPullRequests(listPrs(repo, opts.closed), filters);
+
+  let current = null;
+  if (opts.prBody) {
+    current = getCurrentPr(repo);
+    if (!prs.some((p) => p.number === current.number)) {
+      prs = [...prs, current];
+    }
+  }
+
+  if (prs.length === 0) {
+    die(
+      opts.closed === "exclude"
+        ? `No matching open pull requests in ${repo}.`
+        : `No matching pull requests in ${repo}.`
+    );
+  }
+
+  let highlight;
+  if (opts.prBody) {
+    highlight =
+      prs.find((p) => p.number === current.number) ?? current;
+  } else if (opts.highlight) {
+    highlight = prs.find((p) => p.number === opts.highlight);
+  } else {
+    highlight = prs.find((p) => p.headRefName === branch);
+  }
 
   if (!highlight && opts.highlight) {
-    die(`No PR #${opts.highlight} in the listed set.`);
+    die(`No PR #${opts.highlight} in the filtered set.`);
   }
   if (!highlight) {
     die(
@@ -335,17 +297,29 @@ function main() {
     ? prs.find((p) => p.number === opts.root)
     : findStackRoot(highlight, prs);
 
-  if (!root) die(`No PR #${opts.root} in the listed set.`);
+  if (!root) die(`No PR #${opts.root} in the filtered set.`);
 
-  const tree = buildStackTree(root, prs);
-  const section = renderSection(repo, tree, root, highlight, opts.closed);
+  const tree = buildStackTree(root, prs, filters);
+  const section = renderReadmeSection(
+    repo,
+    tree,
+    root,
+    highlight,
+    opts.closed
+  );
+
+  if (opts.prBody) {
+    const nextBody = upsertMarkedSection(current.body, section);
+    updatePrBody(repo, current.number, nextBody);
+    console.error(`Updated PR #${current.number} description (${current.url})`);
+  }
 
   if (opts.readme) {
     const path = upsertReadme(opts.readme, section);
     console.error(`Updated ${path}`);
   }
 
-  if (opts.stdout || !opts.readme) {
+  if (opts.stdout || (!opts.readme && !opts.prBody)) {
     process.stdout.write(section.endsWith("\n") ? section : section + "\n");
   }
 }

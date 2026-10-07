@@ -2,24 +2,31 @@
   "name": "pull-request-mapper",
   "displayName": "Pull Request Mapper",
   "description": "Map stacked PR inheritance into a Mermaid flowchart using the GitHub CLI.",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "publisher": "local",
+  "license": "GPL-3.0-only",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
   ],
+  "icon": "assets/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/martinshaw/pull-request-mapper.git"
   },
   "activationEvents": [
-    "onCommand:pull-request-mapper.mapPrStack"
+    "onCommand:pull-request-mapper.mapPrStack",
+    "onCommand:pull-request-mapper.upsertCurrentPrDescription"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "pull-request-mapper.upsertCurrentPrDescription",
+        "title": "PR Mapper: Upsert Diagram to Current PR Description"
+      },
       {
         "command": "pull-request-mapper.mapPrStack",
         "title": "PR Mapper: Map PR Stack"
@@ -42,15 +49,38 @@
             "Include closed and merged PRs with the same styling as open PRs."
           ],
           "description": "How closed and merged pull requests appear in the stack diagram."
+        },
+        "pullRequestMapper.maxDepth": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum dependent levels below the stack root (0 = unlimited). Root is level 0."
+        },
+        "pullRequestMapper.excludeDrafts": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, omit draft pull requests from the diagram."
+        },
+        "pullRequestMapper.authorFilter": {
+          "type": "string",
+          "default": "",
+          "description": "If non-empty, only include PRs authored by this GitHub login."
+        },
+        "pullRequestMapper.labelFilter": {
+          "type": "string",
+          "default": "",
+          "description": "If non-empty, only include PRs that have this label name."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && node scripts/sync-skill-lib.mjs",
     "watch": "tsc -watch -p ./",
-    "package": "npx --yes @vscode/vsce package --no-dependencies"
+    "test": "npm run compile && node --test out/stackMapper.test.js",
+    "package": "npx --yes @vscode/vsce package --no-dependencies",
+    "sync-skill": "node scripts/sync-skill-lib.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

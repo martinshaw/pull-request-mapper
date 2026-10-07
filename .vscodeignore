@@ -2,10 +2,12 @@
 .vscode-test/**
 .github/**
 .cursor/**
+scripts/**
 src/**
 .gitignore
 tsconfig.json
 **/*.ts
 **/*.map
+**/*.test.js
 node_modules/**
 *.vsix
