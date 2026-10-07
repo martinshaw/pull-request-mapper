@@ -143,6 +143,22 @@ function normalizePr(raw: GhPrJson): PullRequest {
   };
 }
 
+const PR_LIST_JSON_FIELDS =
+  "number,title,headRefName,baseRefName,url,state,isDraft,author,labels";
+
+function parsePrListJson(stdout: string, context: string): PullRequest[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as GhPrJson[];
+    return parsed.map(normalizePr);
+  } catch {
+    throw new GhError(`Failed to parse ${context} JSON output.`);
+  }
+}
+
 /**
  * Fetch PRs for the workspace repo in a single `gh pr list` call.
  * All stack mapping is done locally from this list.
@@ -163,22 +179,129 @@ export async function listPullRequests(
       "--limit",
       "1000",
       "--json",
-      "number,title,headRefName,baseRefName,url,state,isDraft,author,labels",
+      PR_LIST_JSON_FIELDS,
+    ],
+    cwd
+  );
+  return parsePrListJson(stdout, "`gh pr list`");
+}
+
+/**
+ * Search open and closed PRs in the repo via `gh pr list --search`.
+ * Returns an empty list for a blank query (caller should not list until typing).
+ */
+export async function searchPullRequests(
+  cwd: string,
+  repo: string,
+  query: string,
+  limit = 20
+): Promise<PullRequest[]> {
+  const q = query.trim();
+  if (!q) {
+    return [];
+  }
+  const { stdout } = await runGh(
+    [
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "all",
+      "--search",
+      q,
+      "--limit",
+      String(limit),
+      "--json",
+      PR_LIST_JSON_FIELDS,
+    ],
+    cwd
+  );
+  return parsePrListJson(stdout, "`gh pr list --search`");
+}
+
+/**
+ * Search remote branch names via GitHub GraphQL `refs(query:)` (gh api).
+ * Returns names without the `refs/heads/` prefix.
+ */
+export async function searchBranches(
+  cwd: string,
+  repo: string,
+  query: string,
+  limit = 20
+): Promise<string[]> {
+  const q = query.trim();
+  if (!q) {
+    return [];
+  }
+
+  const slash = repo.indexOf("/");
+  if (slash <= 0 || slash === repo.length - 1) {
+    throw new GhError(`Invalid repository nameWithOwner: ${repo}`);
+  }
+  const owner = repo.slice(0, slash);
+  const name = repo.slice(slash + 1);
+
+  const gql = `
+    query($owner: String!, $name: String!, $q: String!, $limit: Int!) {
+      repository(owner: $owner, name: $name) {
+        refs(refPrefix: "refs/heads/", query: $q, first: $limit) {
+          nodes { name }
+        }
+      }
+    }
+  `;
+
+  const { stdout } = await runGh(
+    [
+      "api",
+      "graphql",
+      "-f",
+      `query=${gql}`,
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `name=${name}`,
+      "-F",
+      `q=${q}`,
+      "-F",
+      `limit=${limit}`,
     ],
     cwd
   );
 
-  const trimmed = stdout.trim();
-  if (!trimmed) {
-    return [];
-  }
-
   try {
-    const parsed = JSON.parse(trimmed) as GhPrJson[];
-    return parsed.map(normalizePr);
-  } catch {
-    throw new GhError("Failed to parse `gh pr list` JSON output.");
+    const parsed = JSON.parse(stdout) as {
+      data?: {
+        repository?: { refs?: { nodes?: Array<{ name?: string } | null> } };
+      };
+      errors?: Array<{ message?: string }>;
+    };
+    if (parsed.errors?.length) {
+      throw new GhError(
+        parsed.errors.map((e) => e.message).filter(Boolean).join("; ") ||
+          "GraphQL branch search failed."
+      );
+    }
+    const nodes = parsed.data?.repository?.refs?.nodes ?? [];
+    return nodes
+      .map((n) => n?.name?.trim() ?? "")
+      .filter((n) => n.length > 0);
+  } catch (error: unknown) {
+    if (error instanceof GhError) {
+      throw error;
+    }
+    throw new GhError("Failed to parse branch search GraphQL response.");
   }
+}
+
+/** GitHub tree URL for a branch (handles slashes in the branch name). */
+export function githubBranchTreeUrl(repo: string, branchName: string): string {
+  const path = branchName
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `https://github.com/${repo}/tree/${path}`;
 }
 
 type GhPrViewJson = GhPrJson & { body?: string | null };

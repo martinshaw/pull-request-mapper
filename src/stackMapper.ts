@@ -51,8 +51,30 @@ export const MARKER_END = "<!-- pr-stack-mermaid:end -->";
 const CLOSED_STYLE = "fill:#e8e8e8,stroke:#9a9a9a,color:#6a6a6a";
 const HIGHLIGHT_STYLE = "stroke-width:5px,stroke:#1a1";
 
+/** Synthetic root for a remote branch that has no pull request. */
+export const BRANCH_STATE = "BRANCH";
+
 export function isOpenPullRequest(pr: { state: string }): boolean {
   return pr.state.toUpperCase() === "OPEN";
+}
+
+export function isBranchOnlyRoot(pr: { state: string }): boolean {
+  return pr.state.toUpperCase() === BRANCH_STATE;
+}
+
+/** Build a stack root node for a branch with no associated PR. */
+export function makeBranchRoot(
+  branchName: string,
+  treeUrl: string
+): PullRequest {
+  return {
+    number: 0,
+    title: branchName,
+    headRefName: branchName,
+    baseRefName: "",
+    url: treeUrl,
+    state: BRANCH_STATE,
+  };
 }
 
 export function filterPullRequests(
@@ -176,6 +198,11 @@ export function escapeLabel(text: string): string {
 }
 
 function prLabel(pr: PullRequest): string {
+  if (isBranchOnlyRoot(pr)) {
+    return (
+      escapeLabel(pr.headRefName) + "\\n\\n" + escapeLabel("(branch · no PR)")
+    );
+  }
   const stateSuffix = isOpenPullRequest(pr)
     ? ""
     : ` (${pr.state.toLowerCase()})`;
@@ -228,7 +255,7 @@ export function renderMermaid(
 
   if (closedMode === "grayedOut") {
     for (const { id, pr } of nodes) {
-      if (!isOpenPullRequest(pr)) {
+      if (!isOpenPullRequest(pr) && !isBranchOnlyRoot(pr)) {
         lines.push(`  style ${id} ${CLOSED_STYLE}`);
       }
     }
@@ -239,7 +266,9 @@ export function renderMermaid(
     const match = nodes.find((n) => n.pr.number === highlight);
     if (match) {
       const closedGray =
-        closedMode === "grayedOut" && !isOpenPullRequest(match.pr);
+        closedMode === "grayedOut" &&
+        !isOpenPullRequest(match.pr) &&
+        !isBranchOnlyRoot(match.pr);
       if (closedGray) {
         const grayOnly = `  style ${match.id} ${CLOSED_STYLE}`;
         const idx = lines.indexOf(grayOnly);
@@ -261,7 +290,8 @@ export function countNodes(node: StackNode): number {
 }
 
 export function countClosedNodes(node: StackNode): number {
-  const self = isOpenPullRequest(node.pr) ? 0 : 1;
+  const self =
+    isOpenPullRequest(node.pr) || isBranchOnlyRoot(node.pr) ? 0 : 1;
   return (
     self +
     node.children.reduce((sum, child) => sum + countClosedNodes(child), 0)
@@ -293,24 +323,37 @@ export function renderMarkdownDocument(
         ? `\nClosed/merged PRs in diagram: **${closedInTree}** (grayed out).\n`
         : `\nClosed/merged PRs in diagram: **${closedInTree}** (shown as normal).\n`;
 
+  const selectedHeading = isBranchOnlyRoot(selected)
+    ? `PR stack: branch \`${selected.headRefName}\``
+    : `PR stack: #${selected.number} — ${selected.title}`;
+  const selectedLine = isBranchOnlyRoot(selected)
+    ? `Selected branch: \`${selected.headRefName}\` (no pull request)`
+    : `Selected PR branch: \`${selected.headRefName}\` (merges into \`${selected.baseRefName}\`)`;
+  const highlightLine = isBranchOnlyRoot(highlight)
+    ? `Highlighted (current): branch \`${highlight.headRefName}\``
+    : `Highlighted (current) PR: \`#${highlight.number}\` \`${highlight.headRefName}\``;
+  const openLabel = isBranchOnlyRoot(selected)
+    ? `[Open selected branch](${selected.url})`
+    : `[Open selected PR](${selected.url})`;
+
   return [
-    `# PR stack: #${selected.number} — ${selected.title}`,
+    `# ${selectedHeading}`,
     "",
     `Repository: \`${repo}\``,
     "",
-    `Selected PR branch: \`${selected.headRefName}\` (merges into \`${selected.baseRefName}\`)`,
+    selectedLine,
     "",
-    `Highlighted (current) PR: \`#${highlight.number}\` \`${highlight.headRefName}\``,
+    highlightLine,
     "",
     `${dependentLabel}: **${dependentCount}**`,
     closedNote,
-    "Arrows point toward the merge base (child → parent). Merge from the leaves toward the selected PR to land all changes on its branch.",
+    "Arrows point toward the merge base (child → parent). Merge from the leaves toward the selected root to land all changes on its branch.",
     "",
     "```mermaid",
     mermaid,
     "```",
     "",
-    `[Open selected PR](${selected.url})`,
+    openLabel,
     "",
   ].join("\n");
 }

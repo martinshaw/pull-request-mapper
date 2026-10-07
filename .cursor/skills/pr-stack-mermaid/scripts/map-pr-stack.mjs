@@ -18,6 +18,7 @@ const {
   buildStackTree,
   filterPullRequests,
   findStackRoot,
+  makeBranchRoot,
   renderReadmeSection,
   upsertMarkedSection,
 } = require("./lib/stackMapper.js");
@@ -35,6 +36,7 @@ Options:
   --pr-body              Upsert into the current branch PR description (gh pr edit)
   --stdout               Always print the markdown section to stdout
   --root <number>        Force stack root PR number
+  --root-branch <name>   Force stack root to a branch with no PR (mutually exclusive with --root)
   --highlight <number>   Force highlight PR number (default with --pr-body: current PR)
   -h, --help             Show help
 `);
@@ -48,6 +50,7 @@ function parseArgs(argv) {
     prBody: false,
     stdout: false,
     root: null,
+    rootBranch: null,
     highlight: null,
     maxDepth: DEFAULT_STACK_FILTERS.maxDepth,
     excludeDrafts: DEFAULT_STACK_FILTERS.excludeDrafts,
@@ -70,13 +73,28 @@ function parseArgs(argv) {
     else if (a === "--label") opts.labelFilter = argv[++i] ?? "";
     else if (a === "--readme") opts.readme = argv[++i];
     else if (a === "--root") opts.root = Number(argv[++i]);
+    else if (a === "--root-branch") opts.rootBranch = argv[++i] ?? "";
     else if (a === "--highlight") opts.highlight = Number(argv[++i]);
     else die(`Unknown argument: ${a}`);
   }
   if (!Number.isFinite(opts.maxDepth) || opts.maxDepth < 0) {
     die("--max-depth must be a non-negative number");
   }
+  if (opts.root !== null && opts.rootBranch) {
+    die("Use either --root or --root-branch, not both.");
+  }
+  if (opts.rootBranch !== null && !String(opts.rootBranch).trim()) {
+    die("--root-branch requires a branch name.");
+  }
   return opts;
+}
+
+function githubBranchTreeUrl(repo, branchName) {
+  const path = branchName
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `https://github.com/${repo}/tree/${path}`;
 }
 
 function die(msg) {
@@ -295,11 +313,20 @@ function main() {
     );
   }
 
-  let root = opts.root
-    ? prs.find((p) => p.number === opts.root)
-    : findStackRoot(highlight, prs);
+  let root;
+  if (opts.rootBranch) {
+    root = makeBranchRoot(
+      opts.rootBranch.trim(),
+      githubBranchTreeUrl(repo, opts.rootBranch.trim())
+    );
+  } else if (opts.root) {
+    root = prs.find((p) => p.number === opts.root);
+    if (!root) die(`No PR #${opts.root} in the filtered set.`);
+  } else {
+    root = findStackRoot(highlight, prs);
+  }
 
-  if (!root) die(`No PR #${opts.root} in the filtered set.`);
+  if (!root) die("Could not resolve stack root.");
 
   const tree = buildStackTree(root, prs, filters);
   const section = renderReadmeSection(tree, highlight, opts.closed);

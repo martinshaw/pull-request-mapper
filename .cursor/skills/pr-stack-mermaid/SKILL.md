@@ -39,7 +39,7 @@ Generate a stacked-PR Mermaid diagram for the **current workspace git repo**. Pr
 
    # optional: --closed grayedOut|normal|exclude
    # optional: --max-depth N --exclude-drafts --author LOGIN --label NAME
-   # optional: --stdout --root N --highlight N
+   # optional: --stdout --root N --root-branch NAME --highlight N
    ```
 
 5. On failure, fix env / ask the user — do not invent a diagram.
@@ -50,7 +50,7 @@ Generate a stacked-PR Mermaid diagram for the **current workspace git repo**. Pr
 | Topic | Detail |
 | --- | --- |
 | Highlight | Current branch head PR (or `--highlight`) |
-| Root | Walk up bases until none (or `--root`) |
+| Root | Walk up bases until none (or `--root` / `--root-branch`) |
 | Tree / Mermaid / README markers | `scripts/lib/stackMapper.js` |
 | Defaults | Unlimited depth, include drafts, no author/label filter (`exclude` closed mode) |
 
