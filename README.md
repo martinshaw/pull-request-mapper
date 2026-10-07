@@ -74,7 +74,7 @@ This repo provides two ways to get the same diagram:
 | **Primary command**   | `PR Mapper: Upsert Diagram to Current PR Description`                       |
 | **Explore command**   | `PR Mapper: Map PR Stack`                                                   |
 | **Fixture repo**      | `[martinshaw/pr-mapper-test](https://github.com/martinshaw/pr-mapper-test)` |
-| **Version**           | 1.2.1                                                                       |
+| **Version**           | 1.3.0                                                                       |
 
 
 ## Table of contents

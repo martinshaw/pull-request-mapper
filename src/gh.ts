@@ -184,17 +184,27 @@ export async function listPullRequests(
 type GhPrViewJson = GhPrJson & { body?: string | null };
 
 /**
- * PR for the current branch (`gh pr view`), including description body.
+ * PR for the current branch (`gh pr view <branch> --repo …`), including body.
+ * With `--repo`, gh requires an explicit number/url/branch argument.
  */
 export async function getCurrentBranchPullRequest(
   cwd: string,
-  repo: string
+  repo: string,
+  branchName?: string
 ): Promise<PullRequestWithBody> {
+  const branch = branchName ?? (await getCurrentBranchName(cwd));
+  if (!branch) {
+    throw new GhError(
+      "Could not determine the current git branch (detached HEAD?). Check out a PR branch and try again."
+    );
+  }
+
   try {
     const { stdout } = await runGh(
       [
         "pr",
         "view",
+        branch,
         "--repo",
         repo,
         "--json",

@@ -22,11 +22,7 @@ import {
   upsertMarkedSection,
   type DiagramNode,
 } from "./stackMapper";
-import {
-  getClosedPullRequestsMode,
-  getStackFilters,
-  type ClosedPullRequestsMode,
-} from "./settings";
+import { getClosedPullRequestsMode, getStackFilters } from "./settings";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -67,7 +63,6 @@ async function mapPrStack(): Promise<void> {
 
   const closedMode = getClosedPullRequestsMode();
   const filters = getStackFilters();
-  const listState = closedMode === "exclude" ? "open" : "all";
 
   let repo: string;
   let pullRequests: PullRequest[];
@@ -82,16 +77,13 @@ async function mapPrStack(): Promise<void> {
       async () => getRepoNameWithOwner(cwd)
     );
 
-    const listLabel =
-      listState === "open" ? "listing open PRs" : "listing open and closed PRs";
-
     pullRequests = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `PR Mapper: ${listLabel} for ${repo}…`,
+        title: `PR Mapper: listing open and closed PRs for ${repo}…`,
         cancellable: false,
       },
-      async () => listPullRequests(cwd, repo, listState)
+      async () => listPullRequests(cwd, repo, "all")
     );
   } catch (error) {
     void vscode.window.showErrorMessage(messageFrom(error));
@@ -102,19 +94,23 @@ async function mapPrStack(): Promise<void> {
 
   if (pullRequests.length === 0) {
     void vscode.window.showInformationMessage(
-      closedMode === "exclude"
-        ? `No matching open pull requests found in ${repo}.`
-        : `No matching pull requests found in ${repo}.`
+      `No matching pull requests found in ${repo}.`
     );
     return;
   }
 
-  const selected = await pickPullRequest(pullRequests, repo, closedMode);
+  const selected = await pickPullRequest(pullRequests, repo);
   if (!selected) {
     return;
   }
 
-  const tree = buildStackTree(selected, pullRequests, filters);
+  // Root picker lists closed PRs too; exclude mode still omits them as descendants.
+  const treePrs =
+    closedMode === "exclude"
+      ? pullRequests.filter((pr) => isOpenPullRequest(pr))
+      : pullRequests;
+
+  const tree = buildStackTree(selected, treePrs, filters);
   const diagramNodes = enumerateDiagramNodes(tree);
   const checkedOutBranch = await getCurrentBranchName(cwd);
 
@@ -344,8 +340,7 @@ async function readFileText(uri: vscode.Uri): Promise<string> {
 
 async function pickPullRequest(
   pullRequests: PullRequest[],
-  repo: string,
-  closedMode: ClosedPullRequestsMode
+  repo: string
 ): Promise<PullRequest | undefined> {
   const sorted = [...pullRequests].sort((a, b) => b.number - a.number);
 
@@ -353,10 +348,7 @@ async function pickPullRequest(
   const items: Item[] = sorted.map((pr) => ({
     label: `#${pr.number} ${pr.title}`,
     description: pr.headRefName,
-    detail:
-      closedMode === "exclude"
-        ? `base: ${pr.baseRefName}`
-        : `base: ${pr.baseRefName} · ${pr.state.toLowerCase()}`,
+    detail: `base: ${pr.baseRefName} · ${pr.state.toLowerCase()}`,
     pr,
   }));
 
