@@ -180,10 +180,12 @@ function upsertReadme(readmePath, section) {
   return path;
 }
 
-function getCurrentPr(repo) {
+function getCurrentPr(repo, branch) {
+  // With --repo, gh requires an explicit number/url/branch argument.
   const raw = run("gh", [
     "pr",
     "view",
+    branch,
     "--repo",
     repo,
     "--json",
@@ -260,7 +262,7 @@ function main() {
 
   let current = null;
   if (opts.prBody) {
-    current = getCurrentPr(repo);
+    current = getCurrentPr(repo, branch);
     if (!prs.some((p) => p.number === current.number)) {
       prs = [...prs, current];
     }
