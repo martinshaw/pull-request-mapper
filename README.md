@@ -73,7 +73,7 @@ This repo provides two ways to get the same diagram:
 | --------------------- | --------------------------------------------------------------------------- |
 | **Extension command** | `PR Mapper: Map PR Stack` (`pull-request-mapper.mapPrStack`)                |
 | **Fixture repo**      | `[martinshaw/pr-mapper-test](https://github.com/martinshaw/pr-mapper-test)` |
-| **Version**           | 1.1.0                                                                       |
+| **Version**           | 1.1.1                                                                       |
 
 
 ## Table of contents
