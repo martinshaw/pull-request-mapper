@@ -2,7 +2,7 @@
   "name": "pull-request-mapper",
   "displayName": "Pull Request Mapper",
   "description": "Map stacked PR inheritance into a Mermaid flowchart using the GitHub CLI.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
@@ -20,7 +20,27 @@
         "command": "pull-request-mapper.mapPrStack",
         "title": "PR Mapper: Map PR Stack"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Pull Request Mapper",
+      "properties": {
+        "pullRequestMapper.closedPullRequests": {
+          "type": "string",
+          "default": "exclude",
+          "enum": [
+            "exclude",
+            "grayedOut",
+            "normal"
+          ],
+          "enumDescriptions": [
+            "Omit closed and merged PRs from the stack diagram (open only).",
+            "Include closed and merged PRs, styled gray in the Mermaid diagram.",
+            "Include closed and merged PRs with the same styling as open PRs."
+          ],
+          "description": "How closed and merged pull requests appear in the stack diagram."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

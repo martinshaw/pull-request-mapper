@@ -12,6 +12,10 @@ export type PullRequest = {
   state: string;
 };
 
+export function isOpenPullRequest(pr: { state: string }): boolean {
+  return pr.state.toUpperCase() === "OPEN";
+}
+
 export class GhError extends Error {
   constructor(message: string) {
     super(message);
@@ -73,6 +77,29 @@ export async function ensureGhReady(cwd: string): Promise<void> {
   }
 }
 
+/**
+ * Current checkout branch name, or `undefined` if detached / unavailable.
+ * Local `git` only — not a GitHub API call.
+ */
+export async function getCurrentBranchName(
+  cwd: string
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      { cwd, env: process.env }
+    );
+    const branch = stdout.trim();
+    if (!branch || branch === "HEAD") {
+      return undefined;
+    }
+    return branch;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Resolve the GitHub owner/name for the workspace git remote (one `gh` call). */
 export async function getRepoNameWithOwner(cwd: string): Promise<string> {
   const { stdout } = await runGh(
@@ -88,13 +115,16 @@ export async function getRepoNameWithOwner(cwd: string): Promise<string> {
   return repo;
 }
 
+export type PrListState = "open" | "all";
+
 /**
- * Fetch open PRs for the workspace repo in a single `gh pr list` call.
+ * Fetch PRs for the workspace repo in a single `gh pr list` call.
  * All stack mapping is done locally from this list.
  */
-export async function listOpenPullRequests(
+export async function listPullRequests(
   cwd: string,
-  repo: string
+  repo: string,
+  state: PrListState = "open"
 ): Promise<PullRequest[]> {
   const { stdout } = await runGh(
     [
@@ -103,7 +133,7 @@ export async function listOpenPullRequests(
       "--repo",
       repo,
       "--state",
-      "open",
+      state,
       "--limit",
       "1000",
       "--json",
