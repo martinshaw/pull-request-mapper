@@ -74,7 +74,7 @@ This repo provides two ways to get the same diagram:
 | **Primary command**   | `PR Mapper: Upsert Diagram to Current PR Description`                       |
 | **Explore command**   | `PR Mapper: Map PR Stack`                                                   |
 | **Fixture repo**      | `[martinshaw/pr-mapper-test](https://github.com/martinshaw/pr-mapper-test)` |
-| **Version**           | 1.2.0                                                                       |
+| **Version**           | 1.2.1                                                                       |
 
 
 ## Table of contents
@@ -110,7 +110,7 @@ Check out a PR branch, then run **PR Mapper: Upsert Diagram to Current PR Descri
 - Resolves the PR for the current branch with `gh pr view`
 - Walks up to the stack root, maps dependents (per [Settings](#settings))
 - Highlights the **current branch’s PR** (no highlight prompt)
-- Upserts a marked Mermaid block at the top of that PR’s description via `gh pr edit --body-file` (inserts, or replaces if the markers already exist)
+- Upserts a marked Mermaid fence only (no preamble) at the top of that PR’s description via `gh pr edit --body-file` (inserts, or replaces if the markers already exist)
 
 ### Map PR Stack (interactive)
 
@@ -118,7 +118,7 @@ Check out a PR branch, then run **PR Mapper: Upsert Diagram to Current PR Descri
 2. Pick the **stack root**, then the **highlight** node (checked-out branch pre-selected when present).
 3. Choose output:
    - **Open Markdown tab** — full diagram document
-   - **Insert or update to README** — upsert into a root `README` / `README.*` (`.md`, `.markdown`, `.mdown`, `.mkdn`, `.mkd`, `.txt`, or no extension)
+   - **Insert or update to README** — upsert the Mermaid fence only (no preamble) into a root `README` / `README.*` (`.md`, `.markdown`, `.mdown`, `.mkdn`, `.mkd`, `.txt`, or no extension)
 
 Arrows point toward the merge base (`child --> parent`).
 

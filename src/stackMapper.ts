@@ -315,11 +315,12 @@ export function renderMarkdownDocument(
   ].join("\n");
 }
 
-/** Compact marked section used by the skill / README upsert. */
+/**
+ * Marked Mermaid-only block for README / PR description upsert.
+ * No preamble — just the fence (plus HTML comment markers for replace).
+ */
 export function renderReadmeSection(
-  repo: string,
   tree: StackNode,
-  root: PullRequest,
   highlight: PullRequest,
   closedMode: ClosedPullRequestsMode
 ): string {
@@ -327,21 +328,9 @@ export function renderReadmeSection(
     highlightNumber: highlight.number,
     closedPullRequests: closedMode,
   });
-  const dependentCount = countNodes(tree) - 1;
-  return [
-    MARKER_START,
-    "## PR stack",
-    "",
-    `Repository: \`${repo}\` · Root: [#${root.number}](${root.url}) \`${root.headRefName}\` · Highlighted: [#${highlight.number}](${highlight.url}) \`${highlight.headRefName}\` · Dependents: **${dependentCount}**`,
-    "",
-    "Arrows point toward the merge base (`child --> parent`).",
-    "",
-    "```mermaid",
-    mermaid,
-    "```",
-    MARKER_END,
-    "",
-  ].join("\n");
+  return [MARKER_START, "```mermaid", mermaid, "```", MARKER_END, ""].join(
+    "\n"
+  );
 }
 
 /**

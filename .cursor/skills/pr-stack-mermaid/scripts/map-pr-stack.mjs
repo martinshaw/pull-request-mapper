@@ -300,13 +300,7 @@ function main() {
   if (!root) die(`No PR #${opts.root} in the filtered set.`);
 
   const tree = buildStackTree(root, prs, filters);
-  const section = renderReadmeSection(
-    repo,
-    tree,
-    root,
-    highlight,
-    opts.closed
-  );
+  const section = renderReadmeSection(tree, highlight, opts.closed);
 
   if (opts.prBody) {
     const nextBody = upsertMarkedSection(current.body, section);
