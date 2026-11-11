@@ -134,6 +134,15 @@ async function mapPrStack(): Promise<void> {
     return;
   }
 
+  if (destination === "clipboard") {
+    const section = renderReadmeSection(tree, highlight.pr, closedMode);
+    await vscode.env.clipboard.writeText(section);
+    void vscode.window.showInformationMessage(
+      "PR stack diagram copied to the clipboard."
+    );
+    return;
+  }
+
   if (destination === "tab") {
     const markdown = renderMarkdownDocument(
       tree,
@@ -266,8 +275,10 @@ function getWorkspaceCwd(): string | undefined {
   return folder?.uri.fsPath;
 }
 
-async function pickDestination(): Promise<"tab" | "readme" | undefined> {
-  type Item = vscode.QuickPickItem & { id: "tab" | "readme" };
+async function pickDestination(): Promise<
+  "tab" | "readme" | "clipboard" | undefined
+> {
+  type Item = vscode.QuickPickItem & { id: "tab" | "readme" | "clipboard" };
   const picked = await vscode.window.showQuickPick<Item>(
     [
       {
@@ -279,6 +290,12 @@ async function pickDestination(): Promise<"tab" | "readme" | undefined> {
         label: "Insert or update to README",
         description: "Upsert the marked Mermaid block into a README file",
         id: "readme",
+      },
+      {
+        label: "Copy Mermaid to clipboard",
+        description:
+          "Fenced diagram and replacement comments, without the preamble",
+        id: "clipboard",
       },
     ],
     {
