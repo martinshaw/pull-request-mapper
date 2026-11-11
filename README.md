@@ -74,7 +74,7 @@ This repo provides two ways to get the same diagram:
 | **Primary command**   | `PR Mapper: Upsert Diagram to Current PR Description`                       |
 | **Explore command**   | `PR Mapper: Map PR Stack`                                                   |
 | **Fixture repo**      | `[martinshaw/pr-mapper-test](https://github.com/martinshaw/pr-mapper-test)` |
-| **Version**           | 1.4.0                                                                       |
+| **Version**           | 1.5.0                                                                       |
 
 
 ## Table of contents
@@ -120,6 +120,7 @@ Check out a PR branch, then run **PR Mapper: Upsert Diagram to Current PR Descri
 4. Choose output:
    - **Open Markdown tab** — full diagram document
    - **Insert or update to README** — upsert the Mermaid fence only (no preamble) into a root `README` / `README.*` (`.md`, `.markdown`, `.mdown`, `.mkdn`, `.mkd`, `.txt`, or no extension)
+   - **Copy Mermaid to clipboard** — the fenced Mermaid block and `<!-- pr-stack-mermaid -->` replacement comments, with no preamble
 
 Arrows point toward the merge base (`child --> parent`).
 
